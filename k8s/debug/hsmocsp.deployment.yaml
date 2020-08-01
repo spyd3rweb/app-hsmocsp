@@ -1,0 +1,187 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-hsmocsp
+  namespace: default
+  labels:
+    app.kubernetes.io/name: app-hsmocsp
+spec:
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: app-hsmocsp
+      app.kubernetes.io/name: app-hsmocsp
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: app-hsmocsp
+        app.kubernetes.io/name: app-hsmocsp
+      annotations: {}
+    spec:
+      affinity: {}
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: app-hsmocsp-pcscd-volume
+        hostPath:
+          path: /var/run/pcscd/
+          type: ""
+      - name: app-hsmocsp-config
+        configMap:
+          name: app-hsmocsp-config
+      - name: app-hsmocsp-pki-config
+        configMap:
+          name: app-hsmocsp-pki-config
+      - name: app-hsmocsp-vault-config
+        configMap:
+          name: app-hsmocsp-vault-config
+      - name: app-hsmocsp-softhsm2-config
+        configMap:
+          name: app-hsmocsp-softhsm2-config
+      - name: app-hsmocsp-pki-volume
+        emptyDir: {}
+      - name: app-hsmocsp-softhsm2-token-volume
+        emptyDir: {}
+      containers:
+      - name: app-hsmocsp-pki
+        image: app-pki #:latest
+        args:
+        - init
+        command:
+        - /app/scripts/pki-entrypoint.sh
+        env:
+        - name: OPENSSL_CA_DIR
+          value: /app/.config/pki
+        - name: VAULT_ADDR
+          value: http://127.0.0.1:8200
+        # - name: VAULT_AGENT_ADDR
+        #   value: http://127.0.0.1:8007
+        # - name:  VAULT_AGENT_CONFIG
+        #   value: /app/.config/vault/vault-agent-config.hcl
+        - name: HSM_PIN
+          valueFrom:
+            secretKeyRef:
+              name: app-hsmocsp-secret
+              key: pin
+        - name: HSM_SOPIN
+          valueFrom:
+            secretKeyRef:
+              name: app-hsmocsp-secret
+              key: sopin
+        - name: K8S_TOKEN_REVIEWER_JWT
+          valueFrom:
+            secretKeyRef:
+              name: vault-auth-secret
+              key: token
+        - name: K8S_CA_CRT
+          valueFrom:
+            secretKeyRef:
+              name: vault-auth-secret
+              key: ca.crt
+        volumeMounts:
+        - name: app-hsmocsp-softhsm2-token-volume
+          mountPath: /app/.config/softhsm2/tokens
+        - name: app-hsmocsp-softhsm2-config
+          mountPath: /app/.config/softhsm2/softhsm2.conf
+          subPath: softhsm2.conf
+        - name: app-hsmocsp-pki-volume
+          mountPath: /app/.config/pki
+        - name: app-hsmocsp-pki-config
+          mountPath: /app/.config/pki/ca.conf
+          subPath: ca.conf
+        - mountPath: /app/.config/vault/vault-agent-config.hcl
+          name: app-hsmocsp-vault-config
+          subPath: vault-agent-config.hcl
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 100m
+            memory: 64Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      - name: app-hsmocsp
+        image: app-hsmocsp #:latest #  
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+          initialDelaySeconds: 25
+          periodSeconds: 15
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 25
+          periodSeconds: 15
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 100m
+            memory: 64Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        args:
+        - -config
+        - /app/.config/hsmocsp/config.yaml
+        command:
+        - /app/app-hsmocsp
+        env:
+        - name: HSM_PIN
+          valueFrom:
+            secretKeyRef:
+              name: app-hsmocsp-secret
+              key: pin
+        volumeMounts:
+        - name: app-hsmocsp-config
+          mountPath: /app/.config/hsmocsp/config.yaml
+          subPath: config.yaml
+        - name: app-hsmocsp-pki-volume
+          mountPath: /app/.config/pki
+        - name: app-hsmocsp-softhsm2-token-volume
+          mountPath: /app/.config/softhsm2/tokens
+        - name: app-hsmocsp-softhsm2-config
+          mountPath: /app/.config/softhsm2/softhsm2.conf
+          subPath: softhsm2.conf
+        - name: app-hsmocsp-pcscd-volume
+          mountPath: /var/run/pcscd/
+      - name: app-hsmocsp-pcscd
+        image: app-pki #:latest # 
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+            # nitrokey.com/hsm: "1"
+          requests:
+            cpu: 100m
+            memory: 64Mi
+            # nitrokey.com/hsm: "1"
+        securityContext:
+          privileged: true
+          procMount: Default
+          runAsUser: 0
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        args:
+        - pcscd
+        command:
+        - /app/scripts/pki-entrypoint.sh
+        volumeMounts:
+        - name: app-hsmocsp-pcscd-volume
+          mountPath: /var/run/pcscd/

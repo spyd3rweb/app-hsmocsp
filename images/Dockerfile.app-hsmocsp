@@ -1,0 +1,42 @@
+ARG GO_VERSION=1.14
+
+FROM golang:${GO_VERSION}-alpine AS builder
+
+RUN apk add --update --no-cache ca-certificates make git build-base curl mercurial
+
+ARG GOPROXY
+
+RUN mkdir -p /go/src/github.com/spyd3rweb/app-hsmocsp
+WORKDIR  /go/src/github.com/spyd3rweb/app-hsmocsp
+
+COPY ./go.mod .
+COPY ./go.sum .
+COPY ./main.go .
+
+RUN go mod download
+RUN go mod vendor
+
+# RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -gcflags -o /go/bin/app-hsmocsp
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -gcflags "all=-N -l" -o /go/bin/app-hsmocsp
+
+FROM alpine:3.11
+
+RUN apk add --no-cache ca-certificates ccid opensc pcsc-lite-libs softhsm
+
+# GO
+ENV GODEBUG=1
+
+RUN mkdir -p /app/.config/hsmocsp/
+WORKDIR /app
+ADD .config/hsmocsp/ .config/hsmocsp/
+COPY --from=builder /go/bin/app-hsmocsp .
+
+RUN addgroup --gid 1000 --system app && \
+    adduser --uid 1000 --system app app --home /app && \
+    chown -R app:app /app
+
+USER app
+
+EXPOSE 8080
+ENTRYPOINT [ "/app/app-hsmocsp" ]
+CMD ["-config", "/app/.config/hsmocsp/config.yaml"]

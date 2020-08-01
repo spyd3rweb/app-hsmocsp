@@ -1,0 +1,147 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-hsmocsp-pki-config
+  namespace: default
+  labels:
+    app.kubernetes.io/name: app-hsmocsp
+data:
+  ca.conf: |
+
+    openssl_conf = openssl_def
+
+    [openssl_def]
+    engines = engine_section
+
+    [req]
+    default_bits = 2048
+    distinguished_name = req_distinguished_name
+    default_md = sha256
+    string_mask = MASK:0x2002
+    x509_extensions = v3_ca
+
+    [req_distinguished_name]
+    # empty.
+
+    [engine_section]
+    pkcs11 = pkcs11_section
+
+    [pkcs11_section]
+    engine_id = pkcs11
+    dynamic_path = $ENV::OPENSSL_PKCS11_ENGINE
+    MODULE_PATH = $ENV::HSM_MODULE
+    PIN = $ENV::HSM_PIN
+    init = 0
+
+    [ ca ]
+    #default_ca = ca_int
+    default_ca = ca_ocsp
+
+    [ crl_ext ]
+    issuerAltName=issuer:copy
+    authorityKeyIdentifier=keyid
+
+    [ ca_int ]
+    dir = $ENV::OPENSSL_CA_DIR
+    new_certs_dir = $ENV::OPENSSL_CA_NEW_CERTS_DIR
+    unique_subject = no
+    email_in_dn = no
+    certificate = $ENV::OPENSSL_CA_PEM
+    database = $ENV::OPENSSL_CA_CERTINDEX
+    private_key = $ENV::HSM_CA_PKCS11_URI
+    serial = $ENV::OPENSSL_CA_CERTSERIAL
+    rand_serial = yes
+    default_days = 1825
+    default_md = sha256
+    policy = ca_policy
+    x509_extensions = v3_int
+    crlnumber = $ENV::OPENSSL_CA_CRLNUMBER
+    crldir = $ENV::OPENSSL_CA_CRL_DIR
+    crl = $ENV::OPENSSL_CA_CRL_PEM
+    crl_extensions = crl_ext
+    default_crl_days = 1825
+
+    [ ca_ocsp ]
+    dir = $ENV::OPENSSL_CA_DIR
+    new_certs_dir = $ENV::OPENSSL_CA_NEW_CERTS_DIR
+    unique_subject = no
+    email_in_dn = no
+    certificate = $ENV::OPENSSL_CA_PEM
+    database = $ENV::OPENSSL_CA_CERTINDEX
+    private_key = $ENV::HSM_CA_PKCS11_URI
+    serial = $ENV::OPENSSL_CA_CERTSERIAL
+    rand_serial = yes
+    default_days = 3650
+    default_md = sha256
+    policy = ca_policy
+    x509_extensions = v3_ocsp
+    crlnumber = $ENV::OPENSSL_CA_CRLNUMBER
+    crldir = $ENV::OPENSSL_CA_CRL_DIR
+    crl = $ENV::OPENSSL_CA_CRL_PEM
+    crl_extensions = crl_ext
+    default_crl_days = 3650
+
+    [ ca_policy ]
+    countryName = match
+    stateOrProvinceName = match
+    organizationName = match
+    organizationalUnitName = optional
+    commonName = supplied
+    emailAddress = optional
+
+    [ v3_ca ]
+    basicConstraints = critical,CA:TRUE,pathlen:2
+    keyUsage = critical,any
+    subjectKeyIdentifier = hash
+    authorityKeyIdentifier = keyid:always,issuer
+    keyUsage = digitalSignature,keyEncipherment,cRLSign,keyCertSign
+    extendedKeyUsage = serverAuth
+    crlDistributionPoints = @crl_section
+    subjectAltName  = @alt_names_ca
+    authorityInfoAccess = @ocsp_section
+
+    [ v3_int ]
+    basicConstraints = critical,CA:TRUE,pathlen:1
+    keyUsage = critical,any
+    subjectKeyIdentifier = hash
+    authorityKeyIdentifier = keyid:always,issuer
+    keyUsage = digitalSignature,keyEncipherment,cRLSign,keyCertSign
+    extendedKeyUsage = serverAuth
+    crlDistributionPoints = @crl_section
+    subjectAltName  = @alt_names_int
+    authorityInfoAccess = @ocsp_section
+
+    [ v3_ocsp ]
+    basicConstraints = critical,CA:FALSE
+    subjectKeyIdentifier = hash
+    authorityKeyIdentifier = keyid:always,issuer
+    keyUsage = nonRepudiation,digitalSignature,keyEncipherment
+    extendedKeyUsage = critical,OCSPSigning
+    crlDistributionPoints = @crl_section
+    subjectAltName  = @alt_names_ocsp
+    authorityInfoAccess = @ca_section
+
+    [alt_names_ca]
+    DNS.0 = $ENV::CA_ORG_ABBR Root CA
+    DNS.1 = $ENV::CA_ORG_ABBR CA Root
+
+    [alt_names_int]
+    DNS.0 = $ENV::CA_ORG_ABBR Intermidiate CA 1
+    DNS.1 = $ENV::CA_ORG_ABBR CA Intermidiate 1
+
+    [alt_names_ocsp]
+    DNS.0 = $ENV::CA_ORG_ABBR OCSP PKI
+    DNS.1 = $ENV::CA_ORG_ABBR PKI OCSP
+
+    [crl_section]
+    URI.0 = $ENV::OPENSSL_CA_CRL_URL
+    #URI.1 = http://pki.backup.com/crl
+
+    [ca_section]
+    caIssuers;URI.0 = $ENV::OPENSSL_CA_URL
+
+    [ocsp_section]
+    caIssuers;URI.0 = $ENV::OPENSSL_CA_URL
+    #caIssuers;URI.1 = http://pki.backup.com/ca
+    OCSP;URI.0 = $ENV::OPENSSL_CA_OCSP_URL
+    #OCSP;URI.1 = http://pki.backup.com/ocsp

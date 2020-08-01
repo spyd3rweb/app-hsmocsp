@@ -1,0 +1,117 @@
+{{- if .Values.hsmocsp.enabled }}
+{{- range .Values.hsmocsp.extraConfigMaps }}
+apiVersion: v1
+kind: ConfigMap
+metadata: {{- tpl .metadata $ | trim | nindent 2 }}
+data: {{- tpl .data $ | trim | nindent 2 }}
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "app-hsmocsp.fullname" . -}}-config
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "app-hsmocsp.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+{{- with .Values.hsmocsp.server }}
+    server:
+      logLevel: {{ default 0 (tpl (.logLevel | quote ) $ | atoi )  }}
+      host: {{ default "127.0.0.1" (tpl .host $) }}
+      port: {{ default 8080 (tpl (.port | quote ) $ | atoi ) }}
+    {{- with .timeout }}
+      timeout:
+        server: {{ default 30 (tpl (.server | quote ) $ | atoi ) }}
+        read: {{ default 15 (tpl (.read | quote ) $ | atoi ) }}
+        write: {{ default 10 (tpl (.write | quote ) $ | atoi ) }}
+        idle: {{ default 5 (tpl (.idle | quote ) $ | atoi ) }}
+    {{- end }}
+    {{- with .readinessProbeHandle }}
+      readinessProbeHandle:
+        pattern: {{ default "readyz" (tpl .pattern $) }}
+    {{- end }}
+    {{- with .livenessProbeHandle }}
+      livenessProbeHandle:
+        pattern: {{ default "healthz" (tpl .pattern $) }}
+    {{- end }}
+    {{- $defaultModulePath := default "/usr/lib/softhsm/libsofthsm2.so" $.Values.hsmocsp.defaults.modulePath }}
+    {{- $defaultSlotNumber := default 0 $.Values.hsmocsp.defaults.slotNumber }}
+    {{- $defaultTokenLabel := default "pki-hsm" $.Values.hsmocsp.defaults.tokenLabel }}
+    {{- $defaultKeyLabel := default "ocsp-keypair" $.Values.hsmocsp.defaults.keyLabel }}
+    {{- $defaultKeyID := default "" $.Values.hsmocsp.defaults.keyID }}
+    {{- $defaultPin := default "" $.Values.hsmocsp.defaults.pin }}
+      opensslSourceHandles:
+    {{- range .opensslSourceHandles }}
+      {{- with .ca }}
+        - ca:
+            certPattern: {{ default "ca" (tpl .certPattern $) }}
+            certPath: {{ default ".config/pki/ca.cert.pem" (tpl .certPath $) }}
+            crlPattern: {{ default "crl" (tpl .crlPattern $) }}
+            crlPath: {{ default ".config/pki/crl/ca.crl.pem" (tpl .crlPath $) }}
+            indexPath: {{ default ".config/pki/certindex" (tpl .indexPath $) }}
+      {{- end }}
+      {{- with .ocsp }}
+          ocsp:
+            pattern: {{ default "ocsp" (tpl .pattern $) }}
+            certPath: {{ default ".config/pki/ocsp.cert.pem" (tpl .certPath $) }}
+            keyPath: {{ default "" (tpl .keyPath $) }}
+          {{- with .keyHsm }}
+            keyHsm:
+              modulePath: {{ default $defaultModulePath (tpl .modulePath $) }}
+              slotNumber: {{ default $defaultSlotNumber (tpl (.slotNumber | quote ) $ | atoi ) }}
+              tokenLabel: {{ default $defaultTokenLabel (tpl .tokenLabel $) }}
+              keyLabel: {{ default $defaultKeyLabel (tpl .keyLabel $) }}
+              keyID: {{ default $defaultKeyID (tpl .keyID $) }}
+              {{ with .pin }}
+              pin: {{ default $defaultPin (tpl . $) }}
+              {{- end }}
+          {{- end }}
+      {{- end }}
+    {{- end }}
+      vaultSourceHandles:
+    {{- range .vaultSourceHandles }}
+      {{- with .vault }}
+      - vault:
+          pkiMount: {{ default "pki" (tpl .pkiMount $) }}
+          {{- with .api }}
+          api:
+            address: {{ default "http://127.0.0.1:8200" (tpl .address $) }}
+            agentAddress: {{ default "127.0.0.1:8007" (tpl .agentAddress $) }}
+          {{- end }}
+      {{- end }}
+      {{- with .ocsp }}
+        ocsp:
+          pattern: {{ default "pki/ocsp" (tpl .pattern $) }}
+          certPath: {{ default ".config/pki/ocsp.pki.cert.pem" (tpl .certPath $) }}
+          keyPath: {{ default "" (tpl .keyPath $) }}
+        {{- with .keyHsm }}
+          keyHsm:
+            modulePath: {{ default $defaultModulePath (tpl .modulePath $) }}
+            slotNumber: {{ default $defaultSlotNumber (tpl (.slotNumber | quote ) $ | atoi ) }}
+            tokenLabel: {{ default $defaultTokenLabel (tpl .tokenLabel $) }}
+            keyLabel: {{ default $defaultKeyLabel (tpl .keyLabel $) }}
+            keyID: {{ default $defaultKeyID (tpl .keyID $) }}
+            {{ with .pin }}
+            pin: {{ default $defaultPin (tpl . $) }}
+            {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+{{- range .opensslSourceHandles }}
+{{- range tuple .ca.certPath .ca.crlPath .ca.indexPath .ocsp.certPath }}
+{{- $filePath := (tpl . $) }}
+{{- if $.Files.Get $filePath }}
+{{- $filePath | b64enc | nindent 2 }}: |              
+{{- . | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range .vaultSourceHandles }}
+{{- $filePath := (tpl .ocsp.certPath $) }}
+{{- if $.Files.Get $filePath  }}
+{{- $filePath | b64enc | nindent 2 }}: |              
+{{- . | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

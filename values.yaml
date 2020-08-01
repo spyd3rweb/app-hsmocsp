@@ -1,0 +1,552 @@
+# Default values for app-hsmocsp.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: app-hsmocsp
+  tag: latest
+  pullPolicy: IfNotPresent
+  
+imageConfig:
+  pullPolicy: IfNotPresent
+
+extraImages:
+  appPki: "app-pki"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: "app-hsmocsp"
+
+serviceAccount:
+  # Specifies whether a service account should be created
+  create: true
+  # The name of the service account to use.
+  # If not set and create is true, a name is generated using the fullname template
+  name: ""
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: pki.local
+      paths: []
+
+  tls: []
+  #  - secretName: pki-tls
+  #    hosts:
+  #      - pki.local
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+hsmocsp:
+  enabled: true
+
+  # application config
+  defaults:
+    basePath: '/app'
+    modulePath: '/usr/lib/softhsm/libsofthsm2.so'
+    slotNumber: -1
+    tokenLabel: 'pki-hsm'
+    keyLabel: 'ocsp-keypair'
+    keyID: ''
+    pin: ''
+  server:
+    logLevel: 0
+    host: 0.0.0.0
+    port: 8080
+    timeout:
+      server: 30
+      read: 15
+      write: 10
+      idle: 5
+    readinessProbeHandle:
+      pattern: 'readyz'
+    livenessProbeHandle:
+      pattern: 'healthz'
+    opensslSourceHandles:
+      - ca:
+          hostFiles: true
+          certPattern: 'ca'
+          certPath: '.config/pki/ca.cert.pem'
+          crlPattern: 'crl'
+          crlPath: '.config/pki/crl/ca.crl.pem'
+          indexPath: '.config/pki/certindex'
+        ocsp:
+          pattern: 'ocsp'
+          certPath: '.config/pki/ocsp.cert.pem'
+          keyPath: ''
+          keyHsm:
+            modulePath: '/usr/lib/softhsm/libsofthsm2.so'
+            slotNumber: -1
+            tokenLabel: 'pki-hsm'
+            keyLabel: 'ocsp-keypair'
+            keyID: ''
+            pin: ''
+    vaultSourceHandles:
+      - vault:
+          pkiMount: 'pki'
+          api:
+            address: 'http://127.0.0.1:8200'
+            agentAddress: '127.0.0.1:8007'
+        ocsp:
+          pattern: 'pki/ocsp'
+          certPath: '.config/pki/ocsp.pki.cert.pem'
+          keyPath: ''
+          keyHsm:
+            modulePath: '/usr/lib/softhsm/libsofthsm2.so'
+            slotNumber: -1
+            tokenLabel: 'pki-hsm'
+            keyLabel: 'ocsp-keypair'
+            keyID: ''
+            pin: ''
+      - vault:
+          pkiMount: 'pki_int_development'
+          api:
+            address: 'http://127.0.0.1:8200'
+            agentAddress: '127.0.0.1:8007'
+        ocsp:
+          pattern: 'pki_int_development/ocsp'
+          certPath: '.config/pki/ocsp.pki_int_development.cert.pem'
+          keyPath: ''
+          keyHsm:
+            modulePath: '/usr/lib/softhsm/libsofthsm2.so'
+            slotNumber: -1
+            tokenLabel: 'pki-hsm'
+            keyLabel: 'ocsp-keypair'
+            keyID: ''
+            pin: ''
+
+  # configmap.yaml
+  extraConfigMaps:
+    - apiVersion: v1
+      kind: ConfigMap
+      metadata: |
+
+        name: {{ include "app-hsmocsp.fullname" . -}}-pki-config
+        namespace: {{ .Release.Namespace }}
+        labels: {{ include "app-hsmocsp.labels" . | nindent 4 }}
+      data: |
+
+        ca.conf: |
+
+        {{ $.Files.Get ".config/pki/ca.conf" | nindent 4 }}
+    - apiVersion: v1
+      kind: ConfigMap
+      metadata: |
+
+        name: {{ include "app-hsmocsp.fullname" . -}}-softhsm2-config
+        namespace: {{ .Release.Namespace }}
+        labels: {{ include "app-hsmocsp.labels" . | nindent 4 }}
+      data: |
+
+        softhsm2.conf: | 
+
+        {{ $.Files.Get ".config/softhsm2/softhsm2.conf" | nindent 4 }}
+
+  # serviceaccount.yaml
+  extraServiceAccounts:
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata: |
+
+        name: vault-auth
+        namespace: {{ .Release.Namespace }}
+        labels: {{ include "app-hsmocsp.labels" . | nindent 4 }}
+        annotations:
+          "helm.sh/hook": "pre-install"
+  
+  # serviceaccount.yaml
+  extraRoles: []
+
+  # serviceaccount.yaml
+  extraClusterRoles: []
+
+  # serviceaccount.yaml
+  extraRoleBindings: []
+
+  # serviceaccount.yaml
+  extraClusterRoleBindings:
+    - apiVersion: rbac.authorization.k8s.io/v1beta1
+      kind: ClusterRoleBinding
+      metadata: |
+
+        name: role-tokenreview-binding
+        namespace: {{ .Release.Namespace }}
+        labels: {{ include "app-hsmocsp.labels" . | nindent 4 }}
+      roleRef: |
+
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:auth-delegator
+      subjects: |
+
+        - kind: ServiceAccount
+          name: vault-auth
+          namespace: {{ .Release.Namespace }}
+
+  # secrets.yaml
+  extraSecrets:
+    - apiVersion: v1
+      kind: Secret
+      metadata: |
+
+        name: {{ include "app-hsmocsp.fullname" . -}}-secret
+        namespace: {{ .Release.Namespace }}
+        labels: {{ include "app-hsmocsp.labels" . | nindent 4 }}
+      type: Opaque
+      data: |
+
+        pin: {{ print "spyd3rweb" | b64enc }}
+        sopin: {{ print "0123456789abcdef" | b64enc }}
+    - apiVersion: v1
+      kind: Secret
+      metadata: |
+
+        name: vault-auth-secret
+        namespace: {{ .Release.Namespace }}
+        labels: {{ include "app-hsmocsp.labels" . | nindent 4 }}
+        annotations:
+          kubernetes.io/service-account.name: vault-auth
+      type: kubernetes.io/service-account-token
+
+  # deployment.yaml
+  extraVolumes: |
+
+    - name: {{ include "app-hsmocsp.fullname" . -}}-pcscd-volume
+      hostPath:
+        path: /var/run/pcscd/
+        type: ""
+    - name: {{ include "app-hsmocsp.fullname" . -}}-softhsm2-config
+      configMap:
+        name: {{ include "app-hsmocsp.fullname" . -}}-softhsm2-config
+    - name: {{ include "app-hsmocsp.fullname" . -}}-softhsm2-token-volume
+      emptyDir: {}
+    - name: {{ include "app-hsmocsp.fullname" . -}}-pki-config
+      configMap:
+        name: {{ include "app-hsmocsp.fullname" . -}}-pki-config
+    - name: {{ include "app-hsmocsp.fullname" . -}}-pki-volume
+      emptyDir: {}
+
+  # deployment.yaml
+  extraVolumeMounts: |
+
+    - name: {{ include "app-hsmocsp.fullname" . -}}-pcscd-volume
+      mountPath: /var/run/pcscd/
+    - name: {{ include "app-hsmocsp.fullname" . -}}-softhsm2-config
+      mountPath: /app/.config/softhsm2/softhsm2.conf
+      subPath: softhsm2.conf
+    - name: {{ include "app-hsmocsp.fullname" . -}}-softhsm2-token-volume
+      mountPath: /app/.config/softhsm2/tokens
+    - name: {{ include "app-hsmocsp.fullname" . -}}-pki-volume
+      mountPath: /app/.config/pki
+
+  # deployment.yaml
+  extraEnv : |
+
+    - name: HSM_PIN
+      valueFrom:
+        secretKeyRef:
+          name: {{ include "app-hsmocsp.fullname" . -}}-secret
+          key: pin
+
+  # deployment.yaml
+  extraInitContainers : []
+
+  # deployment.yaml
+  extraContainers: |
+
+    - name: {{ include "app-hsmocsp.fullname" . -}}-pki
+      image: {{ .Values.extraImages.appPki }} # app-pki
+      args:
+      - init
+      command:
+      - /app/scripts/pki-entrypoint.sh
+      env:
+      ## CA Common
+      - name: CA_DOMAIN
+        value: "example.com"
+      - name: CA_PKI_DOMAIN
+        value: {{ include "app-hsmocsp.fullname" . }}
+      - name: CA_ORG
+        value: "Example Inc."
+      - name: CA_ORG_ABBR
+        value: "Example"
+      - name: CA_ORG_UNIT
+        value: "IT Department"
+      - name: CA_COUNTRY
+        value: "US"
+      - name: CA_STATE
+        value: "New York"
+      - name: CA_LOCALITY
+        value: "New York"
+
+      ## K8S
+      - name: K8S_TOKEN_REVIEWER_JWT
+        valueFrom:
+          secretKeyRef:
+            name: vault-auth-secret
+            key: token
+      - name: K8S_CA_CRT
+        valueFrom:
+          secretKeyRef:
+            name: vault-auth-secret
+            key: ca.crt
+      
+      ## softhsm2
+      - name: SOFTHSM2_DIR
+        value: "/app/.config/softhsm2"
+      - name: SOFTHSM2_CONF
+        value: "$(SOFTHSM2_DIR)/softhsm2.conf"
+        
+      ## HSM
+      - name: VALIDATE_HSM
+        value: "true"
+      - name: INIT_HSM
+        value: "true"
+      - name: INIT_HSM_TOKEN
+        value: "true"
+
+      # - name: HSM_MODULE
+      #   value: "/usr/lib64/pkcs11/opensc-pkcs11.so"
+      # - name: HSM_MODULE
+      #   value: "/usr/lib64/pkcs11/libsofthsm2.so"
+      # - name: HSM_SLOTID
+      #   value: "0"
+      - name: HSM_TOKENLABEL
+        value: "pki-hsm"
+      - name: HSM_SOPIN
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "app-hsmocsp.fullname" . -}}-secret
+            key: sopin
+      - name: HSM_PIN
+        valueFrom:
+          secretKeyRef:
+            name: {{ include "app-hsmocsp.fullname" . -}}-secret
+            key: pin
+      
+        # CA
+      - name: HSM_CA_KEYLABEL
+        value: "ca-keypair"
+      - name: HSM_CA_KEYID
+        value: "1234"
+
+        # OCSP
+      - name: HSM_OCSP_KEYID
+        value: "5678"
+      - name: HSM_OCSP_KEYLABEL
+        value: "ocsp-keypair"
+
+        # INT
+      - name: HSM_INT_KEYID
+        value: "9876"
+      - name: HSM_INT_KEYLABEL
+        value: "int-keypair"
+
+      ## OpenSSL CA (Level 1)
+      - name: VALIDATE_OPENSSL_CA
+        value: "true"
+      - name: INIT_OPENSSL_CA
+        value: "true"
+
+      - name: OPENSSL_CA_DIR
+        value: "/app/.config/pki"
+
+        # OCSP
+      - name: INIT_OPENSSL_CA_OCSP
+        value: "true"
+
+      ## OpenSSL Intermediate (Level 2)
+      - name: VALIDATE_OPENSSL_INT
+        value: "true"
+      - name: INIT_OPENSSL_INT
+        value: "true"
+      - name: TEST_OPENSSL_REVOKE
+        value: "true"
+
+      ## Vault
+        # Server
+      - name: VALIDATE_VAULT_SERVER
+        value: "true"
+      - name: INIT_VAULT_DEV
+        value: "true"
+
+        # Agent
+      - name: VALIDATE_VAULT_AGENT
+        value: "false"
+      - name: INIT_VAULT_AGENT
+        value: "true"
+
+        # K8S Auth
+      - name: VALIDATE_VAULT_K8S_AUTH
+        value: "true"
+
+        # K8S Admin Auth
+      - name: VALIDATE_VAULT_ADMIN_K8S_AUTH
+        value: "true"
+      - name: INIT_VAULT_ADMIN_K8S_AUTH
+        value: "true"
+
+      # - name: VAULT_ADMIN_SA_TOKEN
+      #   valueFrom:
+      #     secretKeyRef:
+      #       name: vault-admin-sa-token-secret
+      #       key: token
+
+      ## Vault Root CA (Level 2)
+      - name: VALIDATE_VAULT_ROOT_CA
+        value: "true"
+      - name: INIT_VAULT_ROOT_CA
+        value: "true"
+
+      - name: VAULT_ROOT_CA_ORG
+        value: "$(CA_ORG)"
+      - name: VAULT_ROOT_CA_OU
+        value: "$(CA_ORG_UNIT)" 
+      - name: VAULT_ROOT_CA_DOMAIN
+        value: "$(CA_DOMAIN)"
+      - name: VAULT_ROOT_CA_PATH
+        value: "pki"
+
+        # OCSP Cert
+      - name: INIT_VAULT_ROOT_CA_OCSP
+        value: "true"
+
+        # K8S Vault Root CA Auth
+      - name: INIT_VAULT_ROOT_CA_K8S_AUTH
+        value: "true"
+
+      # - name: VAULT_ROOT_CA_SA_TOKEN
+      #   valueFrom:
+      #     secretKeyRef:
+      #       name: vault-root-ca-sa-token-secret
+      #       key: token
+
+      ## Vault Intermediate CA (Level 3)
+      - name: VALIDATE_VAULT_INTR_CA
+        value: "true"
+      - name: INIT_VAULT_INTR_CA
+        value: "true"
+      
+      - name: VAULT_INTR_CA_ORG # value will be added to org to allow group auth in k8s
+        value: "dev"
+      - name: VAULT_INTR_CA_OU # use lower case for OU, as the vault path is case sensitive
+        value: "development" 
+      - name: VAULT_INTR_CA_DOMAIN
+        value: "$(VAULT_INTR_CA_ORG).$(CA_DOMAIN)" 
+      - name: VAULT_INTR_CA_PATH
+        value: "pki_int_$(VAULT_INTR_CA_OU)"
+
+        # OCSP Cert
+      - name: INIT_VAULT_INTR_CA_OCSP
+        value: "true"
+
+        # K8S Vault Intermediate CA Auth
+      - name: INIT_VAULT_INTR_CA_K8S_AUTH
+        value: "true"
+
+      # - name: VAULT_INTR_CA_SA_TOKEN
+      #   valueFrom:
+      #     secretKeyRef:
+      #       name: vault-intr-ca-sa-secret
+      #       key: token
+
+      ## Vault Intermediate CA (Level 3) Client
+      - name: VALIDATE_VAULT_INTR_CA_CLIENT
+        value: "true"
+      - name: INIT_VAULT_INTR_CA_CLIENT
+        value: "true"
+      - name: TEST_VAULT_REVOKE
+        value: "true"
+
+      - name: VAULT_INTR_CA_CLIENT_CN
+        value: "user"
+      
+      ## K8S Vault OCSP Auth
+      - name: VALIDATE_VAULT_OCSP_K8S_AUTH
+        value: "true"
+      - name: INIT_VAULT_OCSP_K8S_AUTH
+        value: "true"
+
+      # - name: VAULT_OCSP_SA_TOKEN
+      #   valueFrom:
+      #     secretKeyRef:
+      #       name: vault-ocsp-sa-secret
+      #       key: token
+
+      volumeMounts:
+      - name: {{ include "app-hsmocsp.fullname" . -}}-softhsm2-config
+        mountPath: /app/.config/softhsm2/softhsm2.conf
+        subPath: softhsm2.conf
+      - name: {{ include "app-hsmocsp.fullname" . -}}-softhsm2-token-volume
+        mountPath: /app/.config/softhsm2/tokens
+      - name: {{ include "app-hsmocsp.fullname" . -}}-pki-volume
+        mountPath: /app/.config/pki
+      - name: {{ include "app-hsmocsp.fullname" . -}}-pki-config
+        mountPath: /app/.config/pki/ca.conf
+        subPath: ca.conf
+      
+    - name: {{ include "app-hsmocsp.fullname" . -}}-pcscd 
+      image: {{ .Values.extraImages.appPki }} # app-pki
+      resources:
+        limits:
+          cpu: 200m
+          memory: 128Mi
+          # nitrokey.com/hsm: "1"
+        requests:
+          cpu: 100m
+          memory: 64Mi
+          # nitrokey.com/hsm: "1"
+      securityContext:
+        privileged: true
+        procMount: Default
+        runAsUser: 0
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: File
+      args:
+      - pcscd
+      command:
+      - /app/scripts/pki-entrypoint.sh
+      volumeMounts:
+      - name: {{ include "app-hsmocsp.fullname" . -}}-pcscd-volume
+        mountPath: /var/run/pcscd/
+vault:
+  enabled: false
+  # nameOverride: vault
+  # mysqlDatabase: example
+

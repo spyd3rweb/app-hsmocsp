@@ -1,0 +1,44 @@
+apiVersion: skaffold/v2beta5
+kind: Config
+metadata:
+  name: app-hsmocsp
+build:
+    local:
+      push: true
+    artifacts:
+      - image: app-hsmocsp
+        docker:
+          dockerfile: 'images/Dockerfile.app-hsmocsp'
+      - image: app-pki
+        docker:
+          dockerfile: 'images/Dockerfile.app-pki'
+profiles:  
+- name: debug
+  activation:
+  - # env: ENV=debug
+    kubeContext: kind-wslkind
+    command: debug
+  deploy:
+    kubectl:
+      manifests:
+        - 'k8s/debug/*.yaml'
+- name: dev
+  activation:
+  - # env: ENV=dev
+    kubeContext: kind-wslkind
+    command: dev
+  deploy:
+    helm:
+      releases:
+      - name: app-hsmocsp
+        chartPath: ./
+        valuesFiles:
+        - values.yaml
+        setValues: {}
+        # setValueTemplates:
+        #     imageConfig.repository: "{{.SKAFFOLD_DEFAULT_REPO}}"
+        namespace: default
+        artifactOverrides:
+          image: app-hsmocsp # no tag present!
+          extraImages.appPki: app-pki # no tag present!
+

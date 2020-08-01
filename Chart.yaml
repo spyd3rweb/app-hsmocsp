@@ -1,0 +1,4 @@
+apiVersion: v1
+name: "app-hsmocsp"
+description: "A helm chart that deploys an ocsp server that is capable of using a PKCS#11 HSM as the signer for the ocsp responder"
+version: 0.1.0

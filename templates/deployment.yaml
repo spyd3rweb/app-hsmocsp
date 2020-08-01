@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "app-hsmocsp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{ include "app-hsmocsp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "app-hsmocsp.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "app-hsmocsp.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+    {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | trim | nindent 8 }}
+    {{- end }}
+      serviceAccountName: {{ template "app-hsmocsp.serviceAccountName" . }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+    {{- with .Values.hsmocsp.extraInitContainers }}
+      initContainers: {{- tpl . $ | trim | nindent 8 }}
+    {{- end }}
+    {{- $fullNameConfig := printf "%s-config" ( include "app-hsmocsp.fullname" $ ) }}
+      containers:
+      {{- with .Values.hsmocsp.extraContainers }}
+        {{- tpl . $ | trim | nindent 8 }}
+      {{- end }}
+        - name: {{ .Chart.Name }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          # this value comes from the skaffold.yaml
+          # which overwrites the image repository, tag, and pullPolicy }}
+          image: {{ .Values.image }} 
+          # this imagePullPolicy value is now invalid,
+          # because it was overwritten through the `image` value from the skaffold.yaml!
+          # let's redefine it in the `values.yaml` so we can keep it here.
+          imagePullPolicy: {{ .Values.imageConfig.pullPolicy }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+        {{- if .Values.hsmocsp.enabled }}
+        {{- with .Values.hsmocsp.extraEnv }}
+          env: {{- tpl . $ | trim | nindent 10 }}
+        {{- end }}
+        {{- $basePath := default "/app" .Values.hsmocsp.defaults.basePath }}
+        {{- with .Values.hsmocsp.server }}
+          ports:
+            - name: http
+              containerPort: {{ default 8080 .port }}
+              protocol: TCP
+        {{- with .livenessProbeHandle }}
+          livenessProbe:
+            httpGet:
+              path: {{ printf "/%s" (default "healthz" (tpl .pattern $)) }}
+              port: http
+        {{- end }}
+        {{- with .readinessProbeHandle }}
+          readinessProbe:
+            httpGet:
+              path: {{ printf "/%s" (default "readyz" (tpl .pattern $)) }}
+              port: http
+        {{- end }}
+          volumeMounts:
+        {{- with $.Values.hsmocsp.extraVolumeMounts }}
+          {{- tpl . $ | trim | nindent 10 }}
+        {{- end }}
+        {{- $filePath :=  ".config/hsmocsp/config.yaml" }}
+          - mountPath: {{ printf "%s/%s" $basePath $filePath }}
+            name: {{ $fullNameConfig }}
+            subPath: config.yaml
+        {{- range .opensslSourceHandles }}
+        {{- range tuple .ca.certPath .ca.crlPath .ca.indexPath .ocsp.certPath }}
+        {{- $filePath := (tpl . $) }}
+        {{- if $.Files.Get $filePath }}
+          - mountPath: {{ printf "%s/%s" $basePath $filePath }}
+            name: {{ $fullNameConfig }}
+            subPath: {{ $filePath | b64enc }}
+        {{- end }}
+        {{- end }}
+        {{- end }}
+        {{- range .vaultSourceHandles }}
+        {{- $filePath := (tpl .ocsp.certPath $) }}
+        {{- if $.Files.Get $filePath }}
+          - mountPath: {{ printf "%s/%s" $basePath $filePath }}
+            name: {{ $fullNameConfig }}
+            subPath: {{ $filePath | b64enc }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- if .Values.hsmocsp.enabled }}
+      volumes:
+      {{- with .Values.hsmocsp.extraVolumes }}
+        {{-  tpl . $ | trim | nindent 8 }}
+      {{- end }}
+        - name: {{ $fullNameConfig }}
+          configMap:
+            name: {{ $fullNameConfig }}
+    {{- end }}

@@ -1,0 +1,47 @@
+FROM fedora:latest
+
+ARG ARCH=amd64
+ARG VAULT_VERSION=1.4.3
+
+RUN dnf -y update && \
+  dnf -y install ca-certificates pcsc-lite-ccid pcsc-lite opensc softhsm openssl openssl-pkcs11 unzip jq && \
+  dnf clean all
+
+RUN mkdir -p /tmp/build && \
+  cd /tmp/build && \
+  curl -sO https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_${ARCH}.zip && \
+  curl -sO https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_SHA256SUMS && \
+  grep vault_${VAULT_VERSION}_linux_${ARCH}.zip vault_${VAULT_VERSION}_SHA256SUMS | sha256sum -c && \
+  unzip -d /bin vault_${VAULT_VERSION}_linux_${ARCH}.zip && \
+  cd /tmp && \
+  rm -rf /tmp/build
+
+# /vault/logs is made available to use as a location to store audit logs, if
+# desired; /vault/file is made available to use as a location with the file
+# storage backend, if desired; the server will be started with /vault/config as
+# the configuration directory so you can add additional config files in that
+# location.
+
+RUN mkdir -p app/.config/scripts && \
+    mkdir -p app/.config/pki && \
+    mkdir -p app/.config/softhsm2/tokens && \
+    mkdir -p app/.config/vault && \
+    mkdir -p app/.config/vault/logs && \
+    mkdir -p app/.config/vault/file && \
+    mkdir -p app/.config/vault/config
+
+WORKDIR /app
+ADD .config/pki/ .config/pki/
+ADD .config/vault/ .config/vault/
+COPY scripts/pki-entrypoint.sh scripts/
+
+RUN groupadd --gid 1000 --system app && \
+    useradd  --uid 1000 --system app --gid app --home /app && \
+    chown -R app:app /app
+
+USER app
+
+# EXPOSE 8200
+# EXPOSE 8007
+ENTRYPOINT [ "/app/scripts/pki-entrypoint.sh" ]
+CMD ["init"]

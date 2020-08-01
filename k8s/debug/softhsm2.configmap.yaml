@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-hsmocsp-softhsm2-config
+  namespace: default
+  labels:
+    app.kubernetes.io/name: app-hsmocsp
+data:
+  softhsm2.conf: |
+    directories.tokendir = /app/.config/softhsm2/tokens

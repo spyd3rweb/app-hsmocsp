@@ -1,0 +1,18 @@
+{{- if "" }}
+# todo create test
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "app-hsmocsp.fullname" . }}-test-connection"
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "app-hsmocsp.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test-success
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args:  ['{{ include "app-hsmocsp.fullname" . }}:{{ .Values.service.port }}']
+  restartPolicy: Never
+  {{- end }}
