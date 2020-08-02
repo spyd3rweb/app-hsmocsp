@@ -25,6 +25,7 @@ spec:
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       schedulerName: default-scheduler
+      serviceAccountName: app-hsmocsp
       securityContext:
         fsGroup: 1000
       terminationGracePeriodSeconds: 30
@@ -119,13 +120,19 @@ spec:
           httpGet:
             path: /readyz
             port: http
-          initialDelaySeconds: 25
-          periodSeconds: 15
+          # initialDelaySeconds: 25
+          # periodSeconds: 15
         livenessProbe:
           httpGet:
             path: /healthz
             port: http
-          initialDelaySeconds: 25
+          # initialDelaySeconds: 15
+          # periodSeconds: 15
+        startupProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          failureThreshold: 2
           periodSeconds: 15
         resources:
           limits:

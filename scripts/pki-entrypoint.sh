@@ -1,5 +1,5 @@
 #!/bin/sh
-# v0.1.0
+# v0.2.0
 # Copyright (c) 2020, Aaron Blair
 # All rights reserved.
 #
@@ -46,6 +46,8 @@ K8S_APISERVER="${K8S_APISERVER:-https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_POR
 # Default K8S Token for Roles
 K8S_SA_JWT_TOKEN="${K8S_SA_JWT_TOKEN:-$(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null)}"
 K8S_SA_JWT_TOKEN_SAFE=$(jq -R 'split(".") | .[1] | @base64d | fromjson | del(.enc)' <<< ${K8S_SA_JWT_TOKEN})
+K8S_SA="${K8S_SA:-$(echo $K8S_SA_JWT_TOKEN_SAFE | jq -r '."kubernetes.io/serviceaccount/service-account.name" // "default"')}"
+K8S_SA_NAMESPACE="${K8S_SA_NAMESPACE:-$(echo $K8S_SA_JWT_TOKEN_SAFE | jq -r '."kubernetes.io/serviceaccount/namespace" // "default"')}"
 
 # Token Reviewer
 K8S_TOKEN_REVIEWER_JWT="${K8S_TOKEN_REVIEWER_JWT:-$K8S_SA_JWT_TOKEN}"
@@ -277,6 +279,15 @@ VAULT_OCSP_SA_TOKEN_SAFE=$(jq -R 'split(".") | .[1] | @base64d | fromjson | del(
 VAULT_OCSP_SA="${VAULT_OCSP_SA:-$(echo $VAULT_OCSP_SA_TOKEN_SAFE | jq -r '."kubernetes.io/serviceaccount/service-account.name" // "default"')}"
 VAULT_OCSP_SA_NAMESPACE="${VAULT_OCSP_SA_NAMESPACE:-$(echo $VAULT_OCSP_SA_TOKEN_SAFE | jq -r '."kubernetes.io/serviceaccount/namespace" // "default"')}"
 VAULT_OCSP_SA_TTL="${VAULT_OCSP_SA_TTL:-20m}"
+
+## Test PKI Secret
+INIT_TEST_PKI_SECRET="${INIT_TEST_PKI_SECRET:-true}"
+TEST_PKI_SECRET_DIR="${TEST_PKI_SECRET_DIR:-$OPENSSL_CA_DIR}"
+TEST_PKI_SECRET_ENV_FILE=${TEST_PKI_SECRET_ENV_FILE:-$TEST_PKI_SECRET_DIR/test-pki.env}
+TEST_PKI_SECRET="${TEST_PKI_SECRET:-$CA_PKI_DOMAIN-test-pki-secret}"
+
+TEST_PKI_OPENSSL_CA_SOURCE=${TEST_PKI_OPENSSL_CA_SOURCE:-$VALIDATE_OPENSSL_CA}
+TEST_PKI_VAULT_CA_SOURCE=${TEST_PKI_OPENSSL_CA_SOURCE:-$VALIDATE_VAULT_ROOT_CA}
 
 validate_hsm_module()
 {
@@ -1350,7 +1361,7 @@ verify_vault_intr_ca_client_revoke()
 {
     init_vault_intr_ca_crl_chain
 
-    printf "Verifying revoke of VAULT_INTR_CA_CLIENT_PEM' [${VAULT_INTR_CA_CLIENT_PEM}] with 'VAULT_INTR_CA_CRL_CHAIN_PEM' [${VAULT_INTR_CA_CRL_CHAIN_PEM}]\n"
+    printf "Verifying revoke of 'VAULT_INTR_CA_CLIENT_PEM' [${VAULT_INTR_CA_CLIENT_PEM}] with 'VAULT_INTR_CA_CRL_CHAIN_PEM' [${VAULT_INTR_CA_CRL_CHAIN_PEM}]\n"
     
     RESULT=$(openssl verify -crl_check -CAfile ${VAULT_INTR_CA_CRL_CHAIN_PEM} ${VAULT_INTR_CA_CLIENT_PEM} 2>&1 || true )
 
@@ -1638,6 +1649,153 @@ validate_vault_ocsp_k8s_auth()
     fi
 }
 
+test_pki_good_openssl_ca_source()
+{
+    printf "Verifying 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM [${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL}]\n"
+    RESULT=$(openssl ocsp -CAfile ${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM} -issuer ${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM} -cert ${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM} -url ${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL} 2>&1 || true )
+    printf "${RESULT}\n"
+
+    if ( echo "${RESULT}" | grep -q "Response verify OK" ) && ( echo "${RESULT}" | grep -q ": good" ); then
+        printf "Verified 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM [${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL}]\n"
+    else
+        printf "Error verifying 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM [${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL}]\n"
+        exit 1
+    fi
+}
+
+test_pki_revoked_openssl_ca_source()
+{
+    printf "Verifying 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM' [${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL}] and 'TEST_OPENSSL_REVOKE' [${TEST_OPENSSL_REVOKE}]\n"
+    RESULT=$(openssl ocsp -CAfile ${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM} -issuer ${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM} -cert ${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM} -url ${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL} 2>&1 || true )
+    printf "${RESULT}\n"
+
+    if ( echo "${RESULT}" | grep -q "Response verify OK" ) && ( echo "${RESULT}" | grep -q ": revoked" ); then
+        printf "Verified 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM' [${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL}] and 'TEST_OPENSSL_REVOKE' [${TEST_OPENSSL_REVOKE}]\n"
+    else
+        printf "Error verifying 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM' [${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL}] and 'TEST_OPENSSL_REVOKE' [${TEST_OPENSSL_REVOKE}]\n"
+        exit 1
+    fi
+}
+
+test_pki_unknown_openssl_ca_source()
+{
+    printf "Verifying 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL}]\n"
+    RESULT=$(openssl ocsp -CAfile ${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM} -issuer ${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM} -cert ${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM} -url ${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL} 2>&1 || true )
+    printf "${RESULT}\n"
+
+    if ( echo "${RESULT}" | grep -q "Response verify OK" ) && ( echo "${RESULT}" | grep -q ": unknown" ); then
+        printf "Verified 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL}]\n"
+    elif ( ( echo "${RESULT}" | grep -q "Response verify OK" ) && ( echo "${RESULT}" | grep -q ": No Status found." ) ) || ( echo "${RESULT}" | grep -q "Error querying OCSP responder" ); then
+        # TODO: Remove once hsmocsp is updated to properly respond and trigger unknown status
+        printf "Warning unable to verify 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL}]\n"
+    else
+        printf "Error verifying 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM' [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM}] and 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL' [${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL}]\n"
+        exit 1
+    fi
+}
+
+test_pki_good_vault_ca_source()
+{
+    printf "Verifying 'TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL}]\n"
+    RESULT=$(openssl ocsp -CAfile ${TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM}.fullchain -issuer ${TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM} -cert ${TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM} -url ${TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL} 2>&1 || true )
+    printf "${RESULT}\n"
+
+    if ( echo "${RESULT}" | grep -q "Response verify OK" ) && ( echo "${RESULT}" | grep -q ": good" ); then
+        printf "Verified 'TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL}]\n"
+    else
+        printf "Error verifying'TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL}]\n"
+        exit 1
+    fi
+}
+
+test_pki_revoked_vault_ca_source()
+{
+    printf "Verifying 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL}] and 'TEST_VAULT_REVOKE' [${TEST_VAULT_REVOKE}]\n"
+    RESULT=$(openssl ocsp -CAfile ${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM}.fullchain -issuer ${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM} -cert ${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM} -url ${TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL} 2>&1 || true )
+    printf "${RESULT}\n"
+
+    if ( echo "${RESULT}" | grep -q "Response verify OK" ) && ( echo "${RESULT}" | grep -q ": revoked" ); then
+        printf "Verified 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL}] and 'TEST_VAULT_REVOKE' [${TEST_VAULT_REVOKE}]\n"
+    else
+        printf "Error verifying 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL}] and 'TEST_VAULT_REVOKE' [${TEST_VAULT_REVOKE}]\n"
+        exit 1
+    fi
+}
+
+test_pki_unknown_vault_ca_source()
+{
+    printf "Verifying 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL}]\n"
+    RESULT=$(openssl ocsp -CAfile ${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM}.fullchain -issuer ${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM} -cert ${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM} -url ${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL} 2>&1 || true )
+    printf "${RESULT}\n"
+
+    if ( echo "${RESULT}" | grep -q "Response verify OK" ) && ( echo "${RESULT}" | grep -q ": unknown" ); then
+        printf "Verified 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL}]\n"
+    elif ( ( echo "${RESULT}" | grep -q "Response verify OK" ) && ( echo "${RESULT}" | grep -q ": No Status found." ) ) || ( echo "${RESULT}" | grep -q "Error querying OCSP responder" ); then
+        # TODO: Remove once vault-ocsp is updated to properly respond and trigger unknown status
+        printf "Warning unable to verify 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL}]\n"
+    else
+        printf "Error verifying 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM}] with 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM}].fullchain and 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL' [${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL}]\n"
+        exit 1
+    fi
+}
+
+init_test_pki_secret()
+{
+    printf "'INIT_TEST_PKI_SECRET' [${INIT_TEST_PKI_SECRET}]\nInitalizing 'TEST_PKI_SECRET' [${TEST_PKI_SECRET}] with 'TEST_PKI_SECRET_DIR' [${TEST_PKI_SECRET_DIR}] and 'K8S_SA_JWT_TOKEN_SAFE' [${K8S_SA_JWT_TOKEN_SAFE}]\n"
+    
+    if [ "${TEST_PKI_OPENSSL_CA_SOURCE}" == true ]; then
+        # Append Env File
+        tee -a ${TEST_PKI_SECRET_ENV_FILE} &>/dev/null <<EOF
+# OpenSSL CA Source
+TEST_PKI_OPENSSL_CA_SOURCE="\${TEST_PKI_OPENSSL_CA_SOURCE:-$VALIDATE_OPENSSL_CA}"
+TEST_PKI_OPENSSL_CA_REVOKE="\${TEST_PKI_OPENSSL_CA_REVOKE:-$TEST_OPENSSL_REVOKE}"
+
+TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM="\${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM:-$OPENSSL_CA_PEM}"
+TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL="\${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL:-$OPENSSL_CA_OCSP_URL}"
+TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM="\${TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM:-$OPENSSL_CA_OCSP_PEM}"
+
+TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM="\${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM:-$OPENSSL_CA_PEM}"
+TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL="\${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL:-$OPENSSL_CA_OCSP_URL}"
+TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM="\${TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM:-$OPENSSL_INT_PEM}"
+
+TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM="\${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM:-$OPENSSL_CA_PEM}"
+TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL="\${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL:-$OPENSSL_CA_OCSP_URL}"
+TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM="\${TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM:-$OPENSSL_CA_PEM}"
+EOF
+    fi
+
+    if [ "${TEST_PKI_VAULT_CA_SOURCE}" == true ]; then
+        # Append Env File
+        tee -a ${TEST_PKI_SECRET_ENV_FILE} &>/dev/null <<EOF
+# Vault CA Source
+TEST_PKI_VAULT_CA_SOURCE="\${TEST_PKI_VUALT_CA_SOURCE:-$VALIDATE_VAULT_ROOT_CA}"
+TEST_PKI_VAULT_CA_REVOKE="\${TEST_PKI_VAULT_CA_REVOKE:-$TEST_VAULT_REVOKE}"
+
+TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM="\${TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM:-$VAULT_ROOT_CA_PEM}"
+TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL="\${TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL:-$VAULT_ROOT_CA_OCSP_URL}"
+TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM="\${TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM:-$VAULT_ROOT_CA_OCSP_PEM}"
+
+TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM="\${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM:-$VAULT_INTR_CA_PEM}"
+TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL="\${TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL:-$VAULT_INTR_CA_OCSP_URL}"
+TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM="\${TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM:-$VAULT_INTR_CA_CLIENT_PEM}"
+
+TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM="\${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM:-$VAULT_ROOT_CA_PEM}"
+TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL="\${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL:-$VAULT_ROOT_CA_OCSP_URL}"
+TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM="\${TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM:-$VAULT_ROOT_CA_PEM}"
+EOF
+
+    fi
+
+    # add files
+    kubectl create secret generic -n ${K8S_SA_NAMESPACE} ${TEST_PKI_SECRET} --from-file=${TEST_PKI_SECRET_DIR}
+
+    K8S_SA_LABELS=$( kubectl get serviceaccounts -n ${K8S_SA_NAMESPACE} ${K8S_SA} -o json \
+    | jq -r '.metadata.labels // {"app.kubernetes.io/name": "app-hsmocsp"}' )
+    printf "Patching ${TEST_PKI_SECRET} with 'K8S_SA_LABELS' [${K8S_SA_LABELS}]\n"
+    
+    kubectl patch secret -n ${K8S_SA_NAMESPACE} ${TEST_PKI_SECRET} -p "{\"metadata\":{\"labels\":$K8S_SA_LABELS}}"
+}
+
 if [ "$1" = 'init' ]; then
     set -m
     
@@ -1734,20 +1892,56 @@ if [ "$1" = 'init' ]; then
     fi
 
     # Validate Vault
-
     if [ "${VALIDATE_VAULT_OCSP_K8S_AUTH}"  == true ]; then
         # enable k8s auth vault ocsp role and bind sa
         validate_vault_ocsp_k8s_auth
     fi
 
+    # Initialize test pki secret
+    if [ "${INIT_TEST_PKI_SECRET}" == true ]; then
+        init_test_pki_secret
+    fi
+
     # forground previous job (should be either vault dev server or agent)
     set -- printf "Init PKI completed successfully; returning previous job to forground: 'VALIDATE_VAULT_SERVER' [${VALIDATE_VAULT_SERVER}] or 'VALIDATE_VAULT_AGENT' [${VALIDATE_VAULT_AGENT}]\n"
     fg %-
+elif [ "$1" = 'test' ]; then
+    source $TEST_PKI_SECRET_ENV_FILE
+
+    # Validate OpenSSL CA Source Type
+    if [ "${TEST_PKI_OPENSSL_CA_SOURCE}" == true ] ; then
+        # Test good response from OpenSSL CA OCSP URL
+        test_pki_good_openssl_ca_source
+
+        # Test revoked resposne from OpenSSL CA OCSP URL
+        if [ "${TEST_PKI_OPENSSL_CA_REVOKE}" == true ]; then
+            test_pki_revoked_openssl_ca_source
+        fi
+
+        # Test unknown response from OpenSSL CA OCSP URL
+        test_pki_unknown_openssl_ca_source
+    fi
+
+    # Validate Vault CA Source Type
+    if [ "${TEST_PKI_VAULT_CA_SOURCE}" == true ] ; then
+        # Test good response from Vaut Root CA OCSP URL
+        test_pki_good_vault_ca_source
+
+        # Test revoked resposne from Vaut INTR CA OCSP URL
+        if [ "${TEST_PKI_VAULT_CA_REVOKE}" == true ]; then
+            test_pki_revoked_vault_ca_source
+        fi
+
+        # Test unknown response from OpenSSL CA OCSP URL
+        test_pki_unknown_vault_ca_source
+
+        set -- printf "Test PKI completed successfully with 'TEST_PKI_OPENSSL_CA_SOURCE' [${TEST_PKI_OPENSSL_CA_SOURCE}], 'TEST_PKI_OPENSSL_CA_REVOKE' [${TEST_PKI_OPENSSL_CA_REVOKE}], 'TEST_PKI_VAULT_CA_SOURCE' [${TEST_PKI_VAULT_CA_SOURCE}], and 'TEST_PKI_VAULT_CA_REVOKE' [${TEST_PKI_VAULT_CA_REVOKE}]\n"
+    fi
 elif [ "$1" = 'pcscd' ]; then
     # The SmartCard daemon has to be started to communicate with plugged in HSM devices
     # https://pcsclite.apdu.fr/
     rm -f /var/run/pcscd/*
     set -- pcscd --debug --foreground
-fi 
+fi
 
 exec "$@"

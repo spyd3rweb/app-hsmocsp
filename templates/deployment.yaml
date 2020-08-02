@@ -54,6 +54,12 @@ spec:
             httpGet:
               path: {{ printf "/%s" (default "healthz" (tpl .pattern $)) }}
               port: http
+          startupProbe:
+            httpGet:
+              path: {{ printf "/%s" (default "healthz" (tpl .pattern $)) }}
+              port: http
+            failureThreshold: 2
+            periodSeconds: 15
         {{- end }}
         {{- with .readinessProbeHandle }}
           readinessProbe:

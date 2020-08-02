@@ -58,79 +58,108 @@ Each of the following skaffold profiles deploys both the app-hsmocsp and app-pki
 
 ## Testing
 ```
-HSMOCSP_POD=$(kubectl get --no-headers pods -n=default -l='app.kubernetes.io/name'=app-hsmocsp | awk '{ print $1; exit }')
-kubectl exec -it -n default ${HSMOCSP_POD} -c app-hsmocsp-pki -- /bin/bash
-bash-5.0$ cd ~/.config/pki
-bash-5.0$ ls
-ca.cert.pem          ca.pki.cert.pem                            ca.pki_int_development.crl_chain.pem  certserial     int.cert.pem.out.sig   ocsp.pki.cert.csr                  ocsp.pki_int_development.cert.pem.out.sig
-ca.cert.pem.out.sig  ca.pki.cert.pem.fullchain                  certindex                             crl            int.cert.pem.pubkey    ocsp.pki.cert.pem                  ocsp.pki_int_development.cert.pem.pubkey
-ca.cert.pem.pubkey   ca.pki.crl_chain.pem                       certindex.attr                        crlnumber      ocsp.cert.csr          ocsp.pki.cert.pem.out.sig          user.pki_int_development.cert.key
-ca.conf              ca.pki_int_development.cert.csr            certindex.attr.old                    crlnumber.old  ocsp.cert.pem          ocsp.pki.cert.pem.pubkey           user.pki_int_development.cert.pem
-ca.crl_chain.pem     ca.pki_int_development.cert.pem            certindex.old                         int.cert.csr   ocsp.cert.pem.out.sig  ocsp.pki_int_development.cert.csr  user.pki_int_development.cert.pem.out.sig
-ca.pki.cert.csr      ca.pki_int_development.cert.pem.fullchain  certs                                 int.cert.pem   ocsp.cert.pem.pubkey   ocsp.pki_int_development.cert.pem  user.pki_int_development.cert.pem.pubkey
-bash-5.0$ openssl ocsp -CAfile ca.pki.cert.pem.fullchain -issuer ca.pki.cert.pem -cert ocsp.pki.cert.pem -url http://localhost:8080/pki/ocsp
+~$ POD_NAME=$(kubectl get pods --namespace default -l "app.kubernetes.io/name=app-hsmocsp" -o jsonpath="{.items[0].metadata.name}")
+~$ kubectl exec -it -n default ${POD_NAME} -c app-hsmocsp-pki -- /app/scripts/pki-entrypoint.sh test
+Verifying 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM [/app/.config/pki/ocsp.cert.pem] with 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.cert.pem] and 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/ocsp]
 WARNING: no nonce in response
 Response verify OK
-ocsp.pki.cert.pem: good
-        This Update: Jul 31 05:19:56 2020 GMT
-        Next Update: Jul 31 06:19:56 2020 GMT
-bash-5.0$ openssl ocsp -CAfile ca.pki_int_development.cert.pem.fullchain -issuer ca.pki_int_development.cert.pem -cert ocsp.pki_int_development.cert.pem -url http://localhost:8080/pki_int_development/ocsp
+/app/.config/pki/ocsp.cert.pem: good
+        This Update: Aug  2 04:19:51 2020 GMT
+        Next Update: Aug  2 05:19:51 2020 GMT
+Verified 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CERT_PEM [/app/.config/pki/ocsp.cert.pem] with 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.cert.pem] and 'TEST_PKI_GOOD_OPENSSL_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/ocsp]
+Verifying 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM' [/app/.config/pki/int.cert.pem] with 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.cert.pem] and 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/ocsp] and 'TEST_OPENSSL_REVOKE' [true]
 WARNING: no nonce in response
 Response verify OK
-ocsp.pki_int_development.cert.pem: good
-        This Update: Jul 31 05:20:11 2020 GMT
-        Next Update: Jul 31 06:20:11 2020 GMT
-bash-5.0$ openssl ocsp -CAfile ca.pki_int_development.cert.pem.fullchain -issuer ca.pki_int_development.cert.pem -cert user.pki_int_development.cert.pem -url http://localhost:8080/pki_int_development/ocsp
+/app/.config/pki/int.cert.pem: revoked
+        This Update: Aug  2 04:19:51 2020 GMT
+        Revocation Time: Aug  2 04:18:51 2020 GMT
+Verified 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CERT_PEM' [/app/.config/pki/int.cert.pem] with 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.cert.pem] and 'TEST_PKI_REVOKED_OPENSSL_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/ocsp] and 'TEST_OPENSSL_REVOKE' [true]
+Verifying 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM [/app/.config/pki/ca.cert.pem] with 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.cert.pem] and 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/ocsp]
+Error querying OCSP responder
+139847006811968:error:27076072:OCSP routines:parse_http_line1:server response error:crypto/ocsp/ocsp_ht.c:260:Code=500,Reason=Internal Server Error
+Warning unable to verify 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CERT_PEM [/app/.config/pki/ca.cert.pem] with 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.cert.pem] and 'TEST_PKI_UNKNOWN_OPENSSL_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/ocsp]
+Verifying 'TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM' [/app/.config/pki/ocsp.pki.cert.pem] with 'TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.pki.cert.pem].fullchain and 'TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/pki/ocsp]
 WARNING: no nonce in response
 Response verify OK
-user.pki_int_development.cert.pem: revoked
-        This Update: Jul 31 05:20:24 2020 GMT
-        Revocation Time: Jul 31 05:12:54 2020 GMT
-bash-5.0$ exit
-
+/app/.config/pki/ocsp.pki.cert.pem: good
+        This Update: Aug  2 04:19:51 2020 GMT
+        Next Update: Aug  2 05:19:51 2020 GMT
+Verified 'TEST_PKI_GOOD_VAULT_CA_SOURCE_CERT_PEM' [/app/.config/pki/ocsp.pki.cert.pem] with 'TEST_PKI_GOOD_VAULT_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.pki.cert.pem].fullchain and 'TEST_PKI_GOOD_VAULT_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/pki/ocsp]
+Verifying 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM' [/app/.config/pki/user.pki_int_development.cert.pem] with 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.pki_int_development.cert.pem].fullchain and 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/pki_int_development/ocsp] and 'TEST_VAULT_REVOKE' [true]
+WARNING: no nonce in response
+Response verify OK
+/app/.config/pki/user.pki_int_development.cert.pem: revoked
+        This Update: Aug  2 04:19:51 2020 GMT
+        Revocation Time: Aug  2 04:18:59 2020 GMT
+Verified 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CERT_PEM' [/app/.config/pki/user.pki_int_development.cert.pem] with 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.pki_int_development.cert.pem].fullchain and 'TEST_PKI_REVOKED_VAULT_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/pki_int_development/ocsp] and 'TEST_VAULT_REVOKE' [true]
+Verifying 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM' [/app/.config/pki/ca.pki.cert.pem] with 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.pki.cert.pem].fullchain and 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/pki/ocsp]
+WARNING: no nonce in response
+Response verify OK
+/app/.config/pki/ca.pki.cert.pem: ERROR: No Status found.
+Warning unable to verify 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CERT_PEM' [/app/.config/pki/ca.pki.cert.pem] with 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_CA_PEM' [/app/.config/pki/ca.pki.cert.pem].fullchain and 'TEST_PKI_UNKNOWN_VAULT_CA_SOURCE_OCSP_URL' [http://app-hsmocsp/pki/ocsp]
+Test PKI completed successfully with 'TEST_PKI_OPENSSL_CA_SOURCE' [true], 'TEST_PKI_OPENSSL_CA_REVOKE' [true], 'TEST_PKI_VAULT_CA_SOURCE' [true], and 'TEST_PKI_VAULT_CA_REVOKE' [true]
 ```
 
-## Troubleshooting
+## Troubleshooting/Manual Deployment
 If using the default app-pki container's example CA Hierarchy, it takes a minute or so to initialize all the certificates and Vault PKI Secrets Engines; the app-hsmocsp container should continue to restart until all requried certificates and hsm keypairs are successfully found in the shared volume.
 
 ### Manual/CLI Deployment with Skaffold
 ```
-SKAFFOLD_DEFAULT_REPO=<myrepo> ~/.cache/cloud-code/installer/google-cloud-sdk/bin/skaffold dev -v debug --port-forward --rpc-http-port 42535 --filename skaffold.yaml
+~$ SKAFFOLD_DEFAULT_REPO=<myrepo> ~/.cache/cloud-code/installer/google-cloud-sdk/bin/skaffold dev -v debug --port-forward --rpc-http-port 42535 --filename skaffold.yaml
 ```
 
-### Manual/CLI deployment with Helm
+### Manual/CLI Build with Docker
 ```
-helm --kube-context kind-wslkind install --debug --name app-hsmocsp ./ --namespace default --set-string image=${SKAFFOLD_DEFAULT_REPO}/app-hsmocsp:latest extraImages.appPki=${SKAFFOLD_DEFAULT_REPO}/app-pki:latest -f values.yaml
+~$ SKAFFOLD_DEFAULT_REPO=<myrepo>
+~$ docker build -t ${SKAFFOLD_DEFAULT_REPO}/app-hsmocsp -f images/Dockerfile.app-hsmocsp .
+
+~$ docker build -t ${SKAFFOLD_DEFAULT_REPO}/app-pki -f images/Dockerfile.app-pki .
+
+~$ docker push ${SKAFFOLD_DEFAULT_REPO}/app-hsmocsp:latest
+
+~$ docker push ${SKAFFOLD_DEFAULT_REPO}/app-pki:latest
 ```
 
-If a skaffold or helm deployment fails and you want to remove all the default app-hsmocsp resources from your cluster, use the following commands
-```
-~$ kubectl delete configmaps,secrets,service,serviceaccounts,roles,clusterroles,rolebindings,clusterrolebindings -l 'app.kubernetes.io/name'=app-hsmocsp -n default
-configmap "app-hsmocsp-config" deleted
-configmap "app-hsmocsp-pki-config" deleted
-configmap "app-hsmocsp-softhsm2-config" deleted
-configmap "app-hsmocsp-vault-config" deleted
-secret "app-hsmocsp-secret" deleted
-secret "vault-auth-secret" deleted
-service "app-hsmocsp" deleted
-serviceaccount "vault-auth" deleted
-warning: deleting cluster-scoped resources, not scoped to the provided namespace
-clusterrolebinding.rbac.authorization.k8s.io "role-tokenreview-binding" deleted
 
+### Manual/CLI Deployment with Helm
+```
+~$ helm --kube-context kind-wslkind install --debug --name app-hsmocsp ./ --namespace default --set-string "image=${SKAFFOLD_DEFAULT_REPO}/app-hsmocsp:latest","extraImages.appPki=${SKAFFOLD_DEFAULT_REPO}/app-pki:latest","imageConfig.pullPolicy=Always" -f values.yaml
+```
+
+```
+~$ helm delete --purge app-hsmocsp
+```
+
+If a skaffold kubectl or helm deployment fails and you want to remove all the default app-hsmocsp resources from your cluster, use the following commands
+```
 ~$ kubectl delete all -l 'app.kubernetes.io/name'=app-hsmocsp -n default
 pod "app-hsmocsp-XXXXXXXXX-XXXXX" deleted
 deployment.apps "app-hsmocsp" deleted
 replicaset.apps "app-hsmocsp-XXXXXXXXX" deleted
+
+~$ kubectl delete configmaps,secrets,service,serviceaccounts,roles,clusterroles,rolebindings,clusterrolebindings -l 'app.kubernetes.io/name'=app-hsmocsp -n default
+configmap "app-hsmocsp-config" deleted
+configmap "app-hsmocsp-pki-config" deleted
+configmap "app-hsmocsp-softhsm2-config" deleted
+secret "app-hsmocsp-secret" deleted
+secret "app-hsmocsp-test-pki-secret" deleted
+secret "vault-auth-secret" deleted
+service "app-hsmocsp" deleted
+serviceaccount "app-hsmocsp" deleted
+serviceaccount "vault-auth" deleted
+rolebinding.rbac.authorization.k8s.io "app-hsmocsp-edit-binding" deleted
+warning: deleting cluster-scoped resources, not scoped to the provided namespace
+clusterrolebinding.rbac.authorization.k8s.io "role-tokenreview-binding" deleted
 ```
 
 ### Example for adding a kubernetes [extended resource](https://kubernetes.io/docs/tasks/administer-cluster/extended-resource-node/) for the Nitrokey HSM
 Ref: https://banzaicloud.com/blog/vault-hsm/#kubernetes-node-setup
 ```
-kubectl proxy &
+~$ kubectl proxy &
 
-NODE=minikube
+~$ NODE=minikube
 
-curl --header "Content-Type: application/json-patch+json" \
+~$ curl --header "Content-Type: application/json-patch+json" \
      --request PATCH \
      --data '[{"op": "add", "path": "/status/capacity/nitrokey.com~1hsm", "value": "1"}]' \
      http://localhost:8001/api/v1/nodes/${NODE}/status

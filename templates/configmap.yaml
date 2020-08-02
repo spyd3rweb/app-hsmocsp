@@ -17,7 +17,7 @@ data:
 {{- with .Values.hsmocsp.server }}
     server:
       logLevel: {{ default 0 (tpl (.logLevel | quote ) $ | atoi )  }}
-      host: {{ default "127.0.0.1" (tpl .host $) }}
+      host: {{ default "0.0.0.0" (tpl .host $) }}
       port: {{ default 8080 (tpl (.port | quote ) $ | atoi ) }}
     {{- with .timeout }}
       timeout:

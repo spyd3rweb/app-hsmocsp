@@ -2,6 +2,7 @@ FROM fedora:latest
 
 ARG ARCH=amd64
 ARG VAULT_VERSION=1.4.3
+ARG KUBECTL_VERSION=v1.18.0
 
 RUN dnf -y update && \
   dnf -y install ca-certificates pcsc-lite-ccid pcsc-lite opensc softhsm openssl openssl-pkcs11 unzip jq && \
@@ -12,7 +13,10 @@ RUN mkdir -p /tmp/build && \
   curl -sO https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_linux_${ARCH}.zip && \
   curl -sO https://releases.hashicorp.com/vault/${VAULT_VERSION}/vault_${VAULT_VERSION}_SHA256SUMS && \
   grep vault_${VAULT_VERSION}_linux_${ARCH}.zip vault_${VAULT_VERSION}_SHA256SUMS | sha256sum -c && \
-  unzip -d /bin vault_${VAULT_VERSION}_linux_${ARCH}.zip && \
+  unzip -d /usr/local/bin vault_${VAULT_VERSION}_linux_${ARCH}.zip && \
+  curl -sO https://storage.googleapis.com/kubernetes-release/release/{$KUBECTL_VERSION}/bin/linux/amd64/kubectl && \
+  chmod +x ./kubectl && \
+  mv ./kubectl /usr/local/bin/kubectl && \
   cd /tmp && \
   rm -rf /tmp/build
 

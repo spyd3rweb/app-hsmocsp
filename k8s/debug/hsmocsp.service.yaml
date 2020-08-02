@@ -6,10 +6,13 @@ metadata:
   labels:
     app.kubernetes.io/name: app-hsmocsp
 spec:
+  type: ClusterIP
   ports:
   - name: http
-    port: 8080
+    port: 80
     protocol: TCP
-    targetPort: 8080
+    targetPort: http
   sessionAffinity: None
-  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: app-hsmocsp
+  
